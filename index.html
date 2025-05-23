@@ -1,0 +1,1347 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>多機能オーディオスペクトラムアナライザー</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            min-height: 100vh;
+            background-color: #111827; /* より濃いダークグレー */
+            color: #d1d5db; /* 明るめのグレー */
+            margin: 0;
+            padding: 1rem; /* bodyのパディングを少し追加 */
+            box-sizing: border-box;
+        }
+        .container {
+            background-color: #1f2937; /* 少し明るいコンテナ背景 */
+            padding: 2rem;
+            border-radius: 0.75rem; /* 角丸を少し大きく */
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            width: 100%;
+            max-width: 900px;
+            text-align: center;
+        }
+        #spectrumCanvasContainer {
+            width: 100%;
+            height: 350px;
+            background-color: #0f172a; /* キャンバスコンテナの背景をさらに濃く */
+            border-radius: 0.5rem;
+            margin-top: 1.5rem;
+            margin-bottom: 1.5rem;
+            position: relative;
+            overflow: hidden;
+            border: 1px solid #374151; /* ボーダー追加 */
+        }
+        /* 全画面時のスタイル */
+        #spectrumCanvasContainer:-webkit-full-screen { width: 100%; height: 100%; background-color: #0f172a; }
+        #spectrumCanvasContainer:-moz-full-screen { width: 100%; height: 100%; background-color: #0f172a; }
+        #spectrumCanvasContainer:-ms-fullscreen { width: 100%; height: 100%; background-color: #0f172a; }
+        #spectrumCanvasContainer:fullscreen { width: 100%; height: 100%; background-color: #0f172a; }
+
+        #spectrumCanvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+        #canvasBackgroundImage, #canvasBackgroundVideo { 
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            z-index: 0;
+            display: none;
+        }
+
+        .controls {
+            display: flex;
+            gap: 0.75rem; /* ボタン間のスペース */
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 1rem;
+        }
+
+        .controls button, .custom-file-upload-main { /* メインのファイル選択ボタンも統一 */
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem; /* 角丸を少し大きく */
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background-color 0.2s ease, transform 0.1s ease;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .custom-file-upload-main { /* メインのファイル選択ボタンのスタイル */
+             background-color: #3b82f6; /* Tailwind blue-500 */
+             color: white;
+        }
+        .custom-file-upload-main:hover {
+            background-color: #2563eb; /* Tailwind blue-600 */
+        }
+        .controls button {
+            background-color: #4b5563; /* Tailwind gray-600 */
+            color: #e5e7eb; /* Tailwind gray-200 */
+        }
+        .controls button:hover {
+            background-color: #374151; /* Tailwind gray-700 */
+        }
+        .controls button:disabled {
+            background-color: #374151; /* Tailwind gray-700 */
+            color: #9ca3af; /* Tailwind gray-400 */
+            cursor: not-allowed;
+        }
+        .controls button:active:not(:disabled) {
+            transform: translateY(1px);
+        }
+
+
+        input[type="file"] { display: none; }
+
+        #fileName, #backgroundFileNameDisplay, #backgroundVideoNameDisplay { 
+            margin-top: 0.5rem;
+            font-style: italic;
+            color: #9ca3af; /* Tailwind gray-400 */
+            font-size: 0.875rem;
+            min-height: 1.25em;
+        }
+        #errorMessage {
+            color: #f87171; /* Tailwind red-400 */
+            margin-top: 1rem;
+            min-height: 1.5em;
+        }
+        h1 {
+            color: #e5e7eb; /* Tailwind gray-200 */
+            font-size: 2.25rem; /* 少し大きく */
+            font-weight: bold;
+            margin-bottom: 1.5rem;
+        }
+        .loader {
+            border: 5px solid #4b5563; /* Tailwind gray-600 */
+            border-top: 5px solid #3b82f6; /* Tailwind blue-500 */
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+            display: none;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .settings-section {
+            margin-top: 2rem; /* 設定セクション全体のマージン */
+            padding: 0; /* グループでパディングするので不要に */
+            border: none; /* ボーダー削除 */
+        }
+        .setting-group {
+            margin-bottom: 1.5rem; /* グループ間のマージン */
+            padding: 1.5rem;
+            background-color: #374151; /* グループ背景色 */
+            border-radius: 0.5rem;
+            text-align: left;
+        }
+        .setting-group-header { /* アコーディオン用ヘッダー */
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            padding-bottom: 0.75rem;
+            border-bottom: 1px solid #4b5563;
+            margin-bottom: 1rem;
+        }
+        .setting-group-header h3 {
+            font-size: 1.125rem; /* 少し大きく */
+            font-weight: 600; 
+            color: #d1d5db;
+            margin: 0;
+        }
+        .setting-group-content { /* アコーディオン用コンテンツエリア */
+             /* display: none;  JSで制御 */
+        }
+        .setting-item {
+            display: flex;
+            flex-direction: column; 
+            align-items: flex-start; 
+            gap: 0.375rem; /* 少し広げる */
+            margin-bottom: 1rem; 
+        }
+        .setting-item label, .toggle-label { 
+            display: block;
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: #9ca3af; /* ラベルの色を少し薄く */
+            margin-bottom: 0.1rem;
+        }
+        .setting-item input[type="color"] {
+            padding: 0.25rem;
+            height: 2.5rem;
+            width: 3.5rem;
+            border-radius: 0.375rem;
+            border: 1px solid #4b5563;
+            align-self: flex-start; 
+        }
+         .setting-item input[type="range"] {
+            width: 100%; 
+            padding: 0; 
+            accent-color: #3b82f6; /* スライダーの色 */
+            background: #4b5563; /* スライダートラックの背景 */
+            border-radius: 9999px; /* スライダートラックの角丸 */
+            height: 0.5rem; /* スライダートラックの高さ */
+            -webkit-appearance: none;
+            appearance: none;
+        }
+        .setting-item input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 1rem;
+            height: 1rem;
+            background: #3b82f6; /* スライダーのつまみの色 */
+            border-radius: 50%;
+            cursor: pointer;
+        }
+        .setting-item input[type="range"]::-moz-range-thumb {
+            width: 1rem;
+            height: 1rem;
+            background: #3b82f6;
+            border-radius: 50%;
+            cursor: pointer;
+            border: none;
+        }
+
+        .setting-item select {
+            min-width: 150px;
+            background-color: #4b5563; /* selectの背景 */
+            color: #d1d5db;
+            border: 1px solid #6b7280;
+            border-radius: 0.375rem;
+            padding: 0.5rem 0.75rem;
+            align-self: flex-start; 
+        }
+        .setting-item .range-value {
+            font-size: 0.875rem; /* 少し大きく */
+            color: #60a5fa; /* Tailwind blue-400 */
+            margin-left: 0.5rem;
+        }
+        .setting-row { 
+            display: flex;
+            align-items: center;
+            width: 100%;
+        }
+         .setting-row label {
+            margin-bottom: 0; 
+            white-space: nowrap; 
+            margin-right: 0.5rem;
+        }
+        .toggle-switch {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .toggle-switch input[type="checkbox"] {
+            height: 1.25em;
+            width: 1.25em;
+            accent-color: #3b82f6; /* チェック時の色 */
+            margin:0; 
+        }
+        /* Video Controls Style */
+        #videoControls {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem; /* 少し広げる */
+            margin-top: 1rem; /* 上マージン */
+            padding: 1rem;
+            background-color: #4b5563; /* 背景色追加 */
+            border-radius: 0.375rem;
+        }
+        #videoControls .setting-row button { /* ボタンのスタイルを他と合わせる */
+            background-color: #6b7280;
+            padding: 0.5rem 1rem;
+        }
+        #videoControls .setting-row button:hover {
+            background-color: #4b5563;
+        }
+        #videoTime {
+            font-size: 0.875rem;
+            color: #d1d5db;
+        }
+        .icon { /* SVGアイコン用 */
+            width: 1.25em;
+            height: 1.25em;
+            fill: currentColor;
+        }
+
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>多機能オーディオスペクトラムアナライザー</h1>
+
+        <div class="controls">
+            <label for="audioFile" class="custom-file-upload-main">
+                <svg class="icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path d="M9.25 13.25a.75.75 0 001.5 0V4.636l2.955 3.129a.75.75 0 001.09-1.03l-4.25-4.5a.75.75 0 00-1.09 0l-4.25 4.5a.75.75 0 101.09 1.03L9.25 4.636v8.614z"/><path d="M3.5 12.75a.75.75 0 00-1.5 0v2.5A2.75 2.75 0 004.75 18h10.5A2.75 2.75 0 0018 15.25v-2.5a.75.75 0 00-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5z"/></svg>
+                音楽ファイルを選択
+            </label>
+            <input type="file" id="audioFile" accept="audio/mpeg, audio/wav, audio/ogg, audio/aac">
+            <button id="playPauseButton" disabled>
+                <svg class="icon icon-play" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M2 10a8 8 0 1116 0 8 8 0 01-16 0zm6.39-2.908a.75.75 0 01.766.027l3.5 2.25a.75.75 0 010 1.262l-3.5 2.25A.75.75 0 018 12.25v-4.5a.75.75 0 01.39-.658z" clip-rule="evenodd" /></svg>
+                <svg class="icon icon-pause" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" style="display:none;"><path fill-rule="evenodd" d="M2 10a8 8 0 1116 0 8 8 0 01-16 0zM9.25 6.75a.75.75 0 00-1.5 0v6.5a.75.75 0 001.5 0v-6.5zm2.5 0a.75.75 0 00-1.5 0v6.5a.75.75 0 001.5 0v-6.5z" clip-rule="evenodd" /></svg>
+                <span class="button-text">再生</span>
+            </button>
+            <button id="stopButton" disabled>
+                <svg class="icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M2 10a8 8 0 1116 0 8 8 0 01-16 0zm5-2.25A.75.75 0 017.75 7h4.5a.75.75 0 01.75.75v4.5a.75.75 0 01-.75.75h-4.5a.75.75 0 01-.75-.75v-4.5z" clip-rule="evenodd" /></svg>
+                停止
+            </button>
+            <button id="fullscreenButton">
+                <svg class="icon icon-fullscreen-enter" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M3 4.25A2.25 2.25 0 015.25 2h5.5A2.25 2.25 0 0113 4.25v2a.75.75 0 01-1.5 0v-2a.75.75 0 00-.75-.75h-5.5a.75.75 0 00-.75.75v11.5c0 .414.336.75.75.75h5.5a.75.75 0 00.75-.75v-2a.75.75 0 011.5 0v2A2.25 2.25 0 0110.75 18h-5.5A2.25 2.25 0 013 15.75V4.25z" clip-rule="evenodd" /><path fill-rule="evenodd" d="M6 10a.75.75 0 01.75-.75h9.546l-1.048-.943a.75.75 0 111.004-1.114l2.5 2.25a.75.75 0 010 1.114l-2.5 2.25a.75.75 0 11-1.004-1.114l1.048-.943H6.75A.75.75 0 016 10z" clip-rule="evenodd" /></svg>
+                <svg class="icon icon-fullscreen-exit" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" style="display:none;"><path fill-rule="evenodd" d="M11.75 2A2.25 2.25 0 009.5 4.25v2a.75.75 0 001.5 0v-2a.75.75 0 01.75-.75h5.5a.75.75 0 01.75.75v11.5a.75.75 0 01-.75.75h-5.5a.75.75 0 01-.75-.75v-2a.75.75 0 00-1.5 0v2A2.25 2.25 0 0011.75 18h5.5A2.25 2.25 0 0019.5 15.75V4.25A2.25 2.25 0 0017.25 2h-5.5z" clip-rule="evenodd" /><path fill-rule="evenodd" d="M14.5 10a.75.75 0 00-.75-.75H4.204l1.048-.943a.75.75 0 10-1.004-1.114l-2.5 2.25a.75.75 0 000 1.114l2.5 2.25a.75.75 0 101.004-1.114l-1.048-.943H13.75a.75.75 0 00.75-.75z" clip-rule="evenodd" /></svg>
+                <span class="button-text">全画面</span>
+            </button> 
+        </div>
+
+        <div id="fileName">ファイルが選択されていません</div>
+        <div id="errorMessage"></div>
+        <div id="loader" class="loader"></div>
+
+        <div id="spectrumCanvasContainer">
+            <img id="canvasBackgroundImage" src="#" alt="背景画像">
+            <video id="canvasBackgroundVideo" loop muted playsinline></video> 
+            <canvas id="spectrumCanvas"></canvas>
+        </div>
+
+        <div class="settings-section">
+            <div class="setting-group">
+                <div class="setting-group-header">
+                    <h3>背景設定</h3>
+                    <svg class="icon icon-chevron-down" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.22 8.22a.75.75 0 011.06 0L10 11.94l3.72-3.72a.75.75 0 111.06 1.06l-4.25 4.25a.75.75 0 01-1.06 0L5.22 9.28a.75.75 0 010-1.06z" clip-rule="evenodd" /></svg>
+                </div>
+                <div class="setting-group-content">
+                    <div class="setting-item">
+                        <label for="backgroundType">タイプ:</label>
+                        <select id="backgroundType">
+                            <option value="color">単色</option>
+                            <option value="image">画像</option>
+                            <option value="video">動画</option> 
+                        </select>
+                    </div>
+                    <div id="bgColorSettings" class="setting-item">
+                        <label for="backgroundColorPicker">背景色:</label>
+                        <input type="color" id="backgroundColorPicker" value="#16161e">
+                    </div>
+                    <div id="bgImageSettings" class="setting-item" style="display: none;">
+                        <label for="backgroundImageFile" class="custom-file-upload !bg-green-500 hover:!bg-green-600 !text-white">
+                            背景画像を選択
+                        </label>
+                        <input type="file" id="backgroundImageFile" accept="image/*">
+                        <button id="clearBackgroundImageButton" class="!bg-red-500 hover:!bg-red-600 !text-white">画像クリア</button>
+                    </div>
+                    <div id="backgroundFileNameDisplay"></div>
+                    <div id="bgVideoSettings" class="setting-item" style="display: none;"> 
+                        <label for="backgroundVideoFile" class="custom-file-upload !bg-purple-500 hover:!bg-purple-600 !text-white">
+                            背景動画を選択
+                        </label>
+                        <input type="file" id="backgroundVideoFile" accept="video/*">
+                        <button id="clearBackgroundVideoButton" class="!bg-red-500 hover:!bg-red-600 !text-white">動画クリア</button>
+                        <div id="backgroundVideoNameDisplay"></div>
+                        <div id="videoControls" style="display:none;">
+                            <div class="setting-row">
+                                <button id="videoPlayPause">
+                                    <svg class="icon icon-video-play" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" /></svg>
+                                    <svg class="icon icon-video-pause" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" style="display:none;"><path d="M5.75 4.5a.75.75 0 00-1.5 0v11a.75.75 0 001.5 0v-11zM15.75 4.5a.75.75 0 00-1.5 0v11a.75.75 0 001.5 0v-11z" /></svg>
+                                    <span class="button-text">再生</span>
+                                </button>
+                                <button id="videoMute">
+                                    <svg class="icon icon-video-mute" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path d="M7.221 10.234a.75.75 0 011.06-1.06l1.256 1.256L10.793 9.17a.75.75 0 011.061 1.06l-1.256 1.257 1.256 1.256a.75.75 0 11-1.06 1.06L9.537 11.293l-1.256 1.256a.75.75 0 01-1.06-1.06l1.256-1.256-1.256-1.256z" /><path fill-rule="evenodd" d="M10 2.5a.75.75 0 00-1.01.08L5.25 6H3.75a.75.75 0 00-.75.75v6.5c0 .414.336.75.75.75h1.5l3.74 3.42a.75.75 0 001.01.08A8.25 8.25 0 0014.25 10 8.25 8.25 0 0010 2.5zM8.5 7.154a6.75 6.75 0 014.263 2.846 6.75 6.75 0 01-4.263 2.846V7.154z" clip-rule="evenodd" /></svg>
+                                    <svg class="icon icon-video-unmute" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" style="display:none;"><path fill-rule="evenodd" d="M10 2.5a.75.75 0 00-1.01.08L5.25 6H3.75a.75.75 0 00-.75.75v6.5c0 .414.336.75.75.75h1.5l3.74 3.42a.75.75 0 001.01.08A8.25 8.25 0 0014.25 10 8.25 8.25 0 0010 2.5zM8.5 7.154a6.75 6.75 0 014.263 2.846 6.75 6.75 0 01-4.263 2.846V7.154z" clip-rule="evenodd" /></svg>
+                                    <span class="button-text">ミュート</span>
+                                </button>
+                            </div>
+                            <div class="setting-item">
+                                <label for="videoSeekSlider">再生位置:</label>
+                                <input type="range" id="videoSeekSlider" min="0" max="100" value="0" step="0.1">
+                                <div id="videoTime" class="range-value">0:00 / 0:00</div>
+                            </div>
+                            <div class="setting-item">
+                                 <label for="videoVolumeSlider">音量:</label>
+                                <input type="range" id="videoVolumeSlider" min="0" max="1" value="0" step="0.01"> 
+                                <span id="videoVolumeDisplay" class="range-value">0%</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="setting-group">
+                <div class="setting-group-header">
+                    <h3>スペクトラム共通設定</h3>
+                    <svg class="icon icon-chevron-down" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.22 8.22a.75.75 0 011.06 0L10 11.94l3.72-3.72a.75.75 0 111.06 1.06l-4.25 4.25a.75.75 0 01-1.06 0L5.22 9.28a.75.75 0 010-1.06z" clip-rule="evenodd" /></svg>
+                </div>
+                <div class="setting-group-content">
+                    <div class="setting-item">
+                        <label for="spectrumType">種類:</label>
+                        <select id="spectrumType">
+                            <option value="bar">バー</option>
+                            <option value="circle">円形</option>
+                            <option value="line">ライン</option>
+                            <option value="wave">ウェーブフォーム</option>
+                        </select>
+                    </div>
+                    <div class="setting-item">
+                        <label for="spectrumColorPicker">基本色:</label>
+                        <input type="color" id="spectrumColorPicker" value="#7aa2f7">
+                    </div>
+                     <div class="setting-item">
+                        <div class="setting-row">
+                            <label for="smoothingTimeConstantRange">滑らかさ:</label>
+                            <input type="range" id="smoothingTimeConstantRange" min="0" max="0.99" step="0.01" value="0.8">
+                            <span id="smoothingValueDisplay" class="range-value">0.80</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="setting-group" id="spectrumDetailSettingsGroup">
+                <div class="setting-group-header">
+                    <h3>スペクトラム詳細設定</h3>
+                    <svg class="icon icon-chevron-down" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.22 8.22a.75.75 0 011.06 0L10 11.94l3.72-3.72a.75.75 0 111.06 1.06l-4.25 4.25a.75.75 0 01-1.06 0L5.22 9.28a.75.75 0 010-1.06z" clip-rule="evenodd" /></svg>
+                </div>
+                <div class="setting-group-content" id="spectrumDetailSettings">
+                    <div class="setting-item" data-type="bar">
+                        <div class="setting-row">
+                            <label for="barCountRange">バーの本数:</label>
+                            <input type="range" id="barCountRange" min="10" max="512" step="1" value="128">
+                            <span id="barCountDisplay" class="range-value">128</span>
+                        </div>
+                    </div>
+                    <div class="setting-item" data-type="bar">
+                        <div class="setting-row">
+                            <label for="barSpacingRange">バー間のスペース:</label>
+                            <input type="range" id="barSpacingRange" min="0" max="10" step="0.5" value="1">
+                            <span id="barSpacingDisplay" class="range-value">1</span>
+                        </div>
+                    </div>
+
+                    <div class="setting-item" data-type="circle">
+                         <div class="setting-row">
+                            <label for="circleBarCountRange">ラインの本数:</label>
+                            <input type="range" id="circleBarCountRange" min="10" max="360" step="1" value="90">
+                            <span id="circleBarCountDisplay" class="range-value">90</span>
+                        </div>
+                    </div>
+                    <div class="setting-item" data-type="circle">
+                        <div class="setting-row">
+                            <label for="circleLineWidthRange">ラインの太さ:</label>
+                            <input type="range" id="circleLineWidthRange" min="1" max="10" step="0.5" value="2">
+                            <span id="circleLineWidthDisplay" class="range-value">2</span>
+                        </div>
+                    </div>
+                    <div class="setting-item" data-type="circle">
+                        <div class="setting-row">
+                            <label for="circleInnerRadiusRatioRange">内側半径の比率:</label>
+                            <input type="range" id="circleInnerRadiusRatioRange" min="0.1" max="0.9" step="0.05" value="0.4">
+                            <span id="circleInnerRadiusRatioDisplay" class="range-value">0.40</span>
+                        </div>
+                    </div>
+                    <div class="setting-item" data-type="circle">
+                        <div class="setting-row">
+                            <label for="circleDefaultLineLengthRange">ラインのデフォルト長 (無音時):</label>
+                            <input type="range" id="circleDefaultLineLengthRange" min="0" max="30" step="1" value="2">
+                            <span id="circleDefaultLineLengthDisplay" class="range-value">2</span>
+                        </div>
+                    </div>
+                    <div class="setting-item" data-type="circle">
+                        <div class="toggle-switch">
+                            <input type="checkbox" id="circleDynamicRadiusToggle">
+                            <label for="circleDynamicRadiusToggle" class="toggle-label">円全体のサイズを音量に連動</label>
+                        </div>
+                    </div>
+                    <div class="setting-item" data-type="circle">
+                         <div class="setting-row">
+                            <label for="circleDynamicRadiusSensitivityRange">サイズ連動の感度:</label>
+                            <input type="range" id="circleDynamicRadiusSensitivityRange" min="0.1" max="2.0" step="0.1" value="0.5">
+                            <span id="circleDynamicRadiusSensitivityDisplay" class="range-value">0.5</span>
+                        </div>
+                    </div>
+
+                    <div class="setting-item" data-type="line">
+                        <div class="setting-row">
+                            <label for="lineWidthRange">線の太さ (ライン):</label>
+                            <input type="range" id="lineWidthRange" min="1" max="10" step="0.5" value="2">
+                            <span id="lineWidthDisplay" class="range-value">2</span>
+                        </div>
+                    </div>
+                    
+                    <div class="setting-item" data-type="wave">
+                        <div class="setting-row">
+                            <label for="waveLineWidthRange">線の太さ (ウェーブ):</label>
+                            <input type="range" id="waveLineWidthRange" min="1" max="10" step="0.5" value="2">
+                            <span id="waveLineWidthDisplay" class="range-value">2</span>
+                        </div>
+                    </div>
+                     <div class="setting-item" data-type="wave">
+                        <div class="setting-row">
+                            <label for="waveAmplitudeRange">波形の振幅係数:</label>
+                            <input type="range" id="waveAmplitudeRange" min="0.1" max="2" step="0.1" value="1">
+                            <span id="waveAmplitudeDisplay" class="range-value">1.0</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // DOM Elements
+        const audioFileInput = document.getElementById('audioFile');
+        const playPauseButton = document.getElementById('playPauseButton');
+        const playIcon = playPauseButton.querySelector('.icon-play');
+        const pauseIcon = playPauseButton.querySelector('.icon-pause');
+        const playButtonText = playPauseButton.querySelector('.button-text');
+
+        const stopButton = document.getElementById('stopButton');
+        const fullscreenButton = document.getElementById('fullscreenButton');
+        const fullscreenEnterIcon = fullscreenButton.querySelector('.icon-fullscreen-enter');
+        const fullscreenExitIcon = fullscreenButton.querySelector('.icon-fullscreen-exit');
+        const fullscreenButtonText = fullscreenButton.querySelector('.button-text');
+
+        const spectrumCanvasContainer = document.getElementById('spectrumCanvasContainer');
+        const spectrumCanvas = document.getElementById('spectrumCanvas');
+        const canvasCtx = spectrumCanvas.getContext('2d');
+        const canvasBackgroundImage = document.getElementById('canvasBackgroundImage');
+        const canvasBackgroundVideo = document.getElementById('canvasBackgroundVideo'); 
+        const fileNameDisplay = document.getElementById('fileName');
+        const errorMessageDisplay = document.getElementById('errorMessage');
+        const loader = document.getElementById('loader');
+
+        // Settings Elements
+        const backgroundTypeSelect = document.getElementById('backgroundType');
+        const backgroundColorPicker = document.getElementById('backgroundColorPicker');
+        const backgroundImageFileInput = document.getElementById('backgroundImageFile');
+        const clearBackgroundImageButton = document.getElementById('clearBackgroundImageButton');
+        const backgroundVideoFileInput = document.getElementById('backgroundVideoFile'); 
+        const clearBackgroundVideoButton = document.getElementById('clearBackgroundVideoButton'); 
+        const bgImageSettingsDiv = document.getElementById('bgImageSettings');
+        const bgColorSettingsDiv = document.getElementById('bgColorSettings');
+        const bgVideoSettingsDiv = document.getElementById('bgVideoSettings'); 
+        const backgroundFileNameDisplay = document.getElementById('backgroundFileNameDisplay');
+        const backgroundVideoNameDisplay = document.getElementById('backgroundVideoNameDisplay'); 
+
+        // Video Controls Elements
+        const videoControlsDiv = document.getElementById('videoControls');
+        const videoPlayPauseButton = document.getElementById('videoPlayPause');
+        const videoPlayIcon = videoPlayPauseButton.querySelector('.icon-video-play');
+        const videoPauseIcon = videoPlayPauseButton.querySelector('.icon-video-pause');
+        const videoPlayPauseButtonText = videoPlayPauseButton.querySelector('.button-text');
+        const videoMuteButton = document.getElementById('videoMute');
+        const videoMuteIcon = videoMuteButton.querySelector('.icon-video-mute');
+        const videoUnmuteIcon = videoMuteButton.querySelector('.icon-video-unmute');
+        const videoMuteButtonText = videoMuteButton.querySelector('.button-text');
+        const videoSeekSlider = document.getElementById('videoSeekSlider');
+        const videoTimeDisplay = document.getElementById('videoTime');
+        const videoVolumeSlider = document.getElementById('videoVolumeSlider');
+        const videoVolumeDisplay = document.getElementById('videoVolumeDisplay');
+
+
+        const spectrumTypeSelect = document.getElementById('spectrumType');
+        const spectrumColorPicker = document.getElementById('spectrumColorPicker');
+        const smoothingTimeConstantRange = document.getElementById('smoothingTimeConstantRange');
+        const smoothingValueDisplay = document.getElementById('smoothingValueDisplay');
+
+        // Detail Settings Elements
+        const barCountRange = document.getElementById('barCountRange');
+        const barCountDisplay = document.getElementById('barCountDisplay');
+        const barSpacingRange = document.getElementById('barSpacingRange');
+        const barSpacingDisplay = document.getElementById('barSpacingDisplay');
+
+        const circleBarCountRange = document.getElementById('circleBarCountRange');
+        const circleBarCountDisplay = document.getElementById('circleBarCountDisplay');
+        const circleLineWidthRange = document.getElementById('circleLineWidthRange');
+        const circleLineWidthDisplay = document.getElementById('circleLineWidthDisplay');
+        const circleInnerRadiusRatioRange = document.getElementById('circleInnerRadiusRatioRange');
+        const circleInnerRadiusRatioDisplay = document.getElementById('circleInnerRadiusRatioDisplay');
+        const circleDefaultLineLengthRange = document.getElementById('circleDefaultLineLengthRange'); 
+        const circleDefaultLineLengthDisplay = document.getElementById('circleDefaultLineLengthDisplay'); 
+        const circleDynamicRadiusToggle = document.getElementById('circleDynamicRadiusToggle'); 
+        const circleDynamicRadiusSensitivityRange = document.getElementById('circleDynamicRadiusSensitivityRange'); 
+        const circleDynamicRadiusSensitivityDisplay = document.getElementById('circleDynamicRadiusSensitivityDisplay'); 
+        
+        const lineWidthRange = document.getElementById('lineWidthRange');
+        const lineWidthDisplay = document.getElementById('lineWidthDisplay');
+
+        const waveLineWidthRange = document.getElementById('waveLineWidthRange');
+        const waveLineWidthDisplay = document.getElementById('waveLineWidthDisplay');
+        const waveAmplitudeRange = document.getElementById('waveAmplitudeRange');
+        const waveAmplitudeDisplay = document.getElementById('waveAmplitudeDisplay');
+
+        const spectrumDetailSettingsDiv = document.getElementById('spectrumDetailSettings');
+        const spectrumDetailSettingsGroupDiv = document.getElementById('spectrumDetailSettingsGroup');
+
+
+        // Audio Variables
+        let audioContext;
+        let analyser;
+        let source;
+        let audioBuffer;
+        let frequencyDataArray; 
+        let timeDomainDataArray; 
+        let animationFrameId;
+        let isPlaying = false;
+        let startTime = 0;
+        let pausedTime = 0;
+
+        // --- 初期化とイベントリスナー ---
+        function initAudioContext() {
+            if (!audioContext) {
+                try {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    analyser = audioContext.createAnalyser();
+                    analyser.fftSize = 2048;
+                    analyser.smoothingTimeConstant = parseFloat(smoothingTimeConstantRange.value);
+                    const bufferLength = analyser.frequencyBinCount;
+                    frequencyDataArray = new Uint8Array(bufferLength);
+                    timeDomainDataArray = new Uint8Array(bufferLength); 
+                } catch (e) {
+                    console.error("Web Audio APIの初期化に失敗:", e);
+                    errorMessageDisplay.textContent = "Web Audio APIの初期化に失敗しました。";
+                    disableControls();
+                }
+            }
+        }
+
+        audioFileInput.addEventListener('change', handleAudioFileSelect);
+        playPauseButton.addEventListener('click', togglePlayPause);
+        stopButton.addEventListener('click', stopAudio);
+        fullscreenButton.addEventListener('click', toggleFullscreen); 
+
+        backgroundTypeSelect.addEventListener('change', handleBackgroundTypeChange);
+        backgroundColorPicker.addEventListener('input', () => {
+            updateCanvasBackground();
+            drawCurrentOrInitialSpectrum();
+        });
+        backgroundImageFileInput.addEventListener('change', handleBackgroundImageSelect);
+        clearBackgroundImageButton.addEventListener('click', clearBackgroundImage);
+        backgroundVideoFileInput.addEventListener('change', handleBackgroundVideoSelect); 
+        clearBackgroundVideoButton.addEventListener('click', clearBackgroundVideo); 
+
+        // Video Controls Event Listeners
+        videoPlayPauseButton.addEventListener('click', () => {
+            if (!audioBuffer || !isPlaying) return; 
+            if (canvasBackgroundVideo.paused || canvasBackgroundVideo.ended) {
+                canvasBackgroundVideo.play().catch(e => console.warn("Video play failed:", e));
+            } else {
+                canvasBackgroundVideo.pause();
+            }
+        });
+        videoMuteButton.addEventListener('click', () => {
+            canvasBackgroundVideo.muted = !canvasBackgroundVideo.muted;
+        });
+        videoSeekSlider.addEventListener('input', () => {
+            if(canvasBackgroundVideo.duration){
+                const seekTime = canvasBackgroundVideo.duration * (videoSeekSlider.value / 100);
+                canvasBackgroundVideo.currentTime = seekTime;
+            }
+        });
+        videoVolumeSlider.addEventListener('input', () => {
+            canvasBackgroundVideo.volume = videoVolumeSlider.value;
+            if (canvasBackgroundVideo.volume > 0 && canvasBackgroundVideo.muted) {
+                 canvasBackgroundVideo.muted = false;
+            }
+        });
+        canvasBackgroundVideo.addEventListener('play', () => {
+            videoPlayIcon.style.display = 'none';
+            videoPauseIcon.style.display = 'inline-block';
+            videoPlayPauseButtonText.textContent = '一時停止';
+        });
+        canvasBackgroundVideo.addEventListener('pause', () => {
+            videoPlayIcon.style.display = 'inline-block';
+            videoPauseIcon.style.display = 'none';
+            videoPlayPauseButtonText.textContent = '再生';
+        });
+        canvasBackgroundVideo.addEventListener('volumechange', () => {
+            if (canvasBackgroundVideo.muted || canvasBackgroundVideo.volume === 0) {
+                videoMuteIcon.style.display = 'inline-block';
+                videoUnmuteIcon.style.display = 'none';
+                videoMuteButtonText.textContent = 'ミュート解除';
+                videoVolumeSlider.value = 0; // ミュート時はスライダーも0に
+                videoVolumeDisplay.textContent = `0%`;
+            } else {
+                videoMuteIcon.style.display = 'none';
+                videoUnmuteIcon.style.display = 'inline-block';
+                videoMuteButtonText.textContent = 'ミュート';
+                videoVolumeSlider.value = canvasBackgroundVideo.volume;
+                videoVolumeDisplay.textContent = `${Math.round(canvasBackgroundVideo.volume * 100)}%`;
+            }
+        });
+        canvasBackgroundVideo.addEventListener('loadedmetadata', () => { 
+            videoSeekSlider.value = 0;
+            updateVideoTime();
+            videoControlsDiv.style.display = (backgroundTypeSelect.value === 'video' && canvasBackgroundVideo.currentSrc) ? 'flex' : 'none'; 
+            // 初期状態のアイコンとテキストを設定
+            videoPlayIcon.style.display = 'inline-block';
+            videoPauseIcon.style.display = 'none';
+            videoPlayPauseButtonText.textContent = '再生';
+
+            if (canvasBackgroundVideo.muted || canvasBackgroundVideo.volume === 0) {
+                videoMuteIcon.style.display = 'inline-block';
+                videoUnmuteIcon.style.display = 'none';
+                videoMuteButtonText.textContent = 'ミュート解除';
+                videoVolumeSlider.value = 0;
+            } else {
+                videoMuteIcon.style.display = 'none';
+                videoUnmuteIcon.style.display = 'inline-block';
+                videoMuteButtonText.textContent = 'ミュート';
+                videoVolumeSlider.value = canvasBackgroundVideo.volume;
+            }
+            videoVolumeDisplay.textContent = `${Math.round(videoVolumeSlider.value * 100)}%`;
+        });
+        canvasBackgroundVideo.addEventListener('timeupdate', () => {
+            if(canvasBackgroundVideo.duration && !isNaN(canvasBackgroundVideo.duration)){ 
+                videoSeekSlider.value = (canvasBackgroundVideo.currentTime / canvasBackgroundVideo.duration) * 100;
+            }
+            updateVideoTime();
+        });
+
+        function updateVideoTime() {
+            const formatTime = (time) => {
+                if (isNaN(time)) return "0:00"; 
+                const minutes = Math.floor(time / 60);
+                const seconds = Math.floor(time % 60).toString().padStart(2, '0');
+                return `${minutes}:${seconds}`;
+            };
+            const currentTime = canvasBackgroundVideo.currentTime || 0;
+            const duration = canvasBackgroundVideo.duration || 0;
+            videoTimeDisplay.textContent = `${formatTime(currentTime)} / ${formatTime(duration)}`;
+        }
+
+
+        spectrumTypeSelect.addEventListener('change', () => {
+            toggleDetailSettingsVisibility();
+            drawCurrentOrInitialSpectrum();
+        });
+        spectrumColorPicker.addEventListener('input', () => drawCurrentOrInitialSpectrum());
+        
+        smoothingTimeConstantRange.addEventListener('input', (e) => {
+            if (analyser) analyser.smoothingTimeConstant = parseFloat(e.target.value);
+            smoothingValueDisplay.textContent = parseFloat(e.target.value).toFixed(2);
+            drawCurrentOrInitialSpectrum();
+        });
+
+        function setupRangeSliderListener(rangeEl, displayEl, decimalPlaces = 0, callback) {
+            rangeEl.addEventListener('input', (e) => {
+                displayEl.textContent = parseFloat(e.target.value).toFixed(decimalPlaces);
+                if (callback) callback(e.target.value); 
+                drawCurrentOrInitialSpectrum();
+            });
+            displayEl.textContent = parseFloat(rangeEl.value).toFixed(decimalPlaces);
+        }
+
+        setupRangeSliderListener(barCountRange, barCountDisplay);
+        setupRangeSliderListener(barSpacingRange, barSpacingDisplay, 1);
+        setupRangeSliderListener(circleBarCountRange, circleBarCountDisplay);
+        setupRangeSliderListener(circleLineWidthRange, circleLineWidthDisplay, 1);
+        setupRangeSliderListener(circleInnerRadiusRatioRange, circleInnerRadiusRatioDisplay, 2);
+        setupRangeSliderListener(circleDefaultLineLengthRange, circleDefaultLineLengthDisplay); 
+        setupRangeSliderListener(circleDynamicRadiusSensitivityRange, circleDynamicRadiusSensitivityDisplay, 1); 
+        setupRangeSliderListener(lineWidthRange, lineWidthDisplay, 1);
+        setupRangeSliderListener(waveLineWidthRange, waveLineWidthDisplay, 1);
+        setupRangeSliderListener(waveAmplitudeRange, waveAmplitudeDisplay, 1);
+
+        circleDynamicRadiusToggle.addEventListener('change', () => { 
+            drawCurrentOrInitialSpectrum();
+        });
+
+        // --- Fullscreen Logic ---
+        function toggleFullscreen() {
+            if (!document.fullscreenElement &&    
+                !document.mozFullScreenElement && 
+                !document.webkitFullscreenElement && 
+                !document.msFullscreenElement) {  
+                if (spectrumCanvasContainer.requestFullscreen) {
+                    spectrumCanvasContainer.requestFullscreen();
+                } else if (spectrumCanvasContainer.mozRequestFullScreen) { 
+                    spectrumCanvasContainer.mozRequestFullScreen();
+                } else if (spectrumCanvasContainer.webkitRequestFullscreen) { 
+                    spectrumCanvasContainer.webkitRequestFullscreen();
+                } else if (spectrumCanvasContainer.msRequestFullscreen) { 
+                    spectrumCanvasContainer.msRequestFullscreen();
+                }
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                } else if (document.mozCancelFullScreen) { 
+                    document.mozCancelFullScreen();
+                } else if (document.webkitExitFullscreen) { 
+                    document.webkitExitFullscreen();
+                } else if (document.msExitFullscreen) { 
+                    document.msExitFullscreen();
+                }
+            }
+        }
+
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+        document.addEventListener('mozfullscreenchange', handleFullscreenChange);
+        document.addEventListener('MSFullscreenChange', handleFullscreenChange);
+
+        function handleFullscreenChange() {
+            const isFullscreen = !!(document.fullscreenElement || document.mozFullScreenElement || document.webkitFullscreenElement || document.msFullscreenElement);
+            if (isFullscreen) {
+                fullscreenEnterIcon.style.display = 'none';
+                fullscreenExitIcon.style.display = 'inline-block';
+                fullscreenButtonText.textContent = '解除';
+            } else {
+                fullscreenEnterIcon.style.display = 'inline-block';
+                fullscreenExitIcon.style.display = 'none';
+                fullscreenButtonText.textContent = '全画面';
+            }
+            setTimeout(resizeCanvas, 100); 
+        }
+
+
+        // --- オーディオ処理 ---
+        function handleAudioFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            fileNameDisplay.textContent = `選択中: ${file.name}`;
+            errorMessageDisplay.textContent = '';
+            loader.style.display = 'block';
+            disableControls(true); 
+
+            if (!audioContext) initAudioContext();
+            if (!audioContext) { loader.style.display = 'none'; return; }
+
+            if (source) stopAudio(); 
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                audioContext.decodeAudioData(e.target.result)
+                    .then(buffer => {
+                        audioBuffer = buffer;
+                        enableControls();
+                        playIcon.style.display = 'inline-block';
+                        pauseIcon.style.display = 'none';
+                        playButtonText.textContent = '再生';
+                        isPlaying = false;
+                        pausedTime = 0;
+                        loader.style.display = 'none';
+                        drawInitialSpectrum();
+                    })
+                    .catch(err => {
+                        console.error("オーディオデコードエラー:", err);
+                        errorMessageDisplay.textContent = `デコード失敗: ${err.message}`;
+                        disableControls(true);
+                        loader.style.display = 'none';
+                    });
+            };
+            reader.onerror = (err) => {
+                console.error("ファイル読み込みエラー:", err);
+                errorMessageDisplay.textContent = "ファイル読み込み失敗";
+                disableControls(true);
+                loader.style.display = 'none';
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function togglePlayPause() {
+            if (!audioContext || !audioBuffer) return;
+            if (audioContext.state === 'suspended') audioContext.resume();
+            isPlaying ? pauseAudio() : playAudio();
+        }
+
+        function playAudio() {
+            if (isPlaying || !audioBuffer) return;
+            source = audioContext.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(analyser);
+            analyser.connect(audioContext.destination);
+
+            source.onended = () => {
+                if (isPlaying) { 
+                    isPlaying = false;
+                    playIcon.style.display = 'inline-block';
+                    pauseIcon.style.display = 'none';
+                    playButtonText.textContent = '再生';
+                    if (backgroundTypeSelect.value === 'video' && canvasBackgroundVideo.currentSrc && !canvasBackgroundVideo.paused) {
+                        canvasBackgroundVideo.pause(); 
+                    }
+                    cancelAnimationFrame(animationFrameId);
+                }
+            };
+            startTime = audioContext.currentTime - pausedTime;
+            source.start(0, pausedTime);
+            isPlaying = true;
+            playIcon.style.display = 'none';
+            pauseIcon.style.display = 'inline-block';
+            playButtonText.textContent = '一時停止';
+            stopButton.disabled = false;
+
+            if (backgroundTypeSelect.value === 'video' && canvasBackgroundVideo.currentSrc && canvasBackgroundVideo.paused) {
+                canvasBackgroundVideo.play().catch(e => console.warn("Video play failed:", e));
+            }
+            renderLoop();
+        }
+
+        function pauseAudio() {
+            if (!isPlaying || !source) return;
+            source.stop(); 
+            pausedTime = audioContext.currentTime - startTime;
+            isPlaying = false; 
+            playIcon.style.display = 'inline-block';
+            pauseIcon.style.display = 'none';
+            playButtonText.textContent = '再生';
+            if (backgroundTypeSelect.value === 'video' && canvasBackgroundVideo.currentSrc && !canvasBackgroundVideo.paused) {
+                canvasBackgroundVideo.pause();
+            }
+            cancelAnimationFrame(animationFrameId);
+        }
+
+        function stopAudio() {
+            if (source) {
+                try {
+                    if (isPlaying) source.stop();
+                } catch (e) { console.warn("オーディオ停止エラー:", e); }
+            }
+            isPlaying = false;
+            pausedTime = 0;
+            playIcon.style.display = 'inline-block';
+            pauseIcon.style.display = 'none';
+            playButtonText.textContent = '再生';
+            if (audioBuffer) playPauseButton.disabled = false;
+            stopButton.disabled = true;
+
+            if (backgroundTypeSelect.value === 'video' && canvasBackgroundVideo.currentSrc) {
+                canvasBackgroundVideo.pause();
+                canvasBackgroundVideo.currentTime = 0;
+                videoSeekSlider.value = 0; 
+                updateVideoTime();
+            }
+            cancelAnimationFrame(animationFrameId);
+            drawInitialSpectrum();
+        }
+
+        // --- 描画ループ ---
+        function renderLoop() {
+            if (!isPlaying && pausedTime === 0 && !audioBuffer) { 
+                drawInitialSpectrum();
+                return;
+            }
+             if (!isPlaying && pausedTime > 0) { 
+             } else if (isPlaying) { 
+                animationFrameId = requestAnimationFrame(renderLoop);
+             } else { 
+                drawInitialSpectrum(); 
+                return;
+             }
+
+            const currentSpectrumType = spectrumTypeSelect.value;
+            analyser.getByteFrequencyData(frequencyDataArray);
+            analyser.getByteTimeDomainData(timeDomainDataArray);
+            
+            canvasCtx.clearRect(0, 0, spectrumCanvas.width, spectrumCanvas.height);
+            
+            const color = spectrumColorPicker.value;
+            switch (currentSpectrumType) {
+                case 'bar':
+                    drawBarSpectrum(frequencyDataArray, color);
+                    break;
+                case 'circle':
+                    drawCircularSpectrum(frequencyDataArray, color);
+                    break;
+                case 'line':
+                    drawSmoothLineSpectrum(frequencyDataArray, color);
+                    break;
+                case 'wave':
+                    drawWaveform(timeDomainDataArray, color);
+                    break;
+                default:
+                    drawBarSpectrum(frequencyDataArray, color);
+            }
+        }
+        
+        // --- 各スペクトラム描画関数 ---
+        function drawBarSpectrum(data, color) {
+            const numBars = parseInt(barCountRange.value);
+            const spacing = parseFloat(barSpacingRange.value);
+            const totalSpacing = (numBars - 1) * spacing;
+            const barWidth = Math.max(0.1, (spectrumCanvas.width - totalSpacing) / numBars); 
+            let x = 0;
+            const dataStep = Math.max(1, Math.floor(data.length / numBars));
+
+            for (let i = 0; i < numBars; i++) {
+                const dataIndex = Math.min(data.length -1, i * dataStep);
+                const barHeight = data[dataIndex] * (spectrumCanvas.height / 255);
+                canvasCtx.fillStyle = color;
+                canvasCtx.fillRect(x, spectrumCanvas.height - barHeight, barWidth, barHeight);
+                x += barWidth + spacing;
+                if (x >= spectrumCanvas.width) break;
+            }
+        }
+
+        function drawCircularSpectrum(data, color) {
+            const centerX = spectrumCanvas.width / 2;
+            const centerY = spectrumCanvas.height / 2;
+            const numBars = parseInt(circleBarCountRange.value);
+            const lineWidth = parseFloat(circleLineWidthRange.value);
+            const innerRadiusRatioSetting = parseFloat(circleInnerRadiusRatioRange.value);
+            const defaultLineLength = parseFloat(circleDefaultLineLengthRange.value); 
+            const dynamicRadiusEnabled = circleDynamicRadiusToggle.checked;
+            const dynamicRadiusSensitivity = parseFloat(circleDynamicRadiusSensitivityRange.value);
+
+            let overallVolume = 0;
+            if (dynamicRadiusEnabled) {
+                for(let i = 0; i < data.length; i++) {
+                    overallVolume += data[i];
+                }
+                overallVolume = (overallVolume / data.length) / 255; 
+            }
+
+            const baseMaxOuterRadius = Math.min(centerX, centerY) * 0.9;
+            let currentMaxOuterRadius = baseMaxOuterRadius;
+            if (dynamicRadiusEnabled) {
+                const radiusScale = 0.7 + overallVolume * dynamicRadiusSensitivity; 
+                currentMaxOuterRadius = baseMaxOuterRadius * radiusScale;
+            }
+            
+            const innerRadius = currentMaxOuterRadius * innerRadiusRatioSetting;
+            const maxBarHeightPossible = currentMaxOuterRadius * (1 - innerRadiusRatioSetting) * 0.9; 
+            
+            canvasCtx.strokeStyle = color;
+            canvasCtx.lineWidth = lineWidth;
+            const dataStep = Math.max(1, Math.floor(data.length / numBars));
+
+            for (let i = 0; i < numBars; i++) {
+                const dataIndex = Math.min(data.length - 1, i * dataStep);
+                const value = data[dataIndex] / 255; 
+                const volumeBasedHeight = value * maxBarHeightPossible;
+                const barHeight = Math.max(defaultLineLength, volumeBasedHeight); 
+
+                const angle = (i / numBars) * Math.PI * 2 - Math.PI / 2; 
+
+                const startX = centerX + Math.cos(angle) * innerRadius;
+                const startY = centerY + Math.sin(angle) * innerRadius;
+                const endX = centerX + Math.cos(angle) * (innerRadius + barHeight);
+                const endY = centerY + Math.sin(angle) * (innerRadius + barHeight);
+                
+                canvasCtx.beginPath();
+                canvasCtx.moveTo(startX, startY);
+                canvasCtx.lineTo(endX, endY);
+                canvasCtx.stroke();
+            }
+        }
+
+        function drawSmoothLineSpectrum(data, color) {
+            canvasCtx.strokeStyle = color;
+            canvasCtx.lineWidth = parseFloat(lineWidthRange.value);
+            canvasCtx.beginPath();
+            const sliceWidth = spectrumCanvas.width * 1.0 / data.length;
+            let x = 0;
+            for (let i = 0; i < data.length; i++) {
+                const v = data[i] / 255.0;
+                const y = spectrumCanvas.height - (v * spectrumCanvas.height);
+                if (i === 0) {
+                    canvasCtx.moveTo(x, y);
+                } else {
+                    canvasCtx.lineTo(x, y);
+                }
+                x += sliceWidth;
+            }
+            canvasCtx.lineTo(spectrumCanvas.width, spectrumCanvas.height / 2); 
+            canvasCtx.stroke();
+        }
+
+        function drawWaveform(data, color) {
+            canvasCtx.strokeStyle = color;
+            canvasCtx.lineWidth = parseFloat(waveLineWidthRange.value);
+            const amplitudeFactor = parseFloat(waveAmplitudeRange.value);
+            canvasCtx.beginPath();
+            const sliceWidth = spectrumCanvas.width * 1.0 / data.length;
+            let x = 0;
+            for (let i = 0; i < data.length; i++) {
+                const v = (data[i] / 128.0 - 1.0) * amplitudeFactor ; 
+                const y = spectrumCanvas.height / 2 + v * (spectrumCanvas.height / 2) ;
+                if (i === 0) {
+                    canvasCtx.moveTo(x, y);
+                } else {
+                    canvasCtx.lineTo(x, y);
+                }
+                x += sliceWidth;
+            }
+            canvasCtx.lineTo(spectrumCanvas.width, spectrumCanvas.height / 2);
+            canvasCtx.stroke();
+        }
+
+        // --- 背景処理 ---
+        function updateCanvasBackground() {
+            const type = backgroundTypeSelect.value;
+            const bgColor = backgroundColorPicker.value;
+            const imgSrc = canvasBackgroundImage.src;
+            const videoSrc = canvasBackgroundVideo.src;
+
+            spectrumCanvasContainer.style.backgroundColor = bgColor; 
+            canvasBackgroundImage.style.display = 'none';
+            canvasBackgroundVideo.style.display = 'none';
+            videoControlsDiv.style.display = 'none'; 
+
+            if (canvasBackgroundVideo.currentSrc && !canvasBackgroundVideo.paused && type !== 'video') {
+                 canvasBackgroundVideo.pause();
+            }
+
+            if (type === 'image' && imgSrc && imgSrc !== window.location.href + '#' && !imgSrc.endsWith('#')) {
+                spectrumCanvasContainer.style.backgroundColor = 'transparent';
+                canvasBackgroundImage.style.display = 'block';
+            } else if (type === 'video' && videoSrc && videoSrc !== window.location.href + '#') {
+                spectrumCanvasContainer.style.backgroundColor = 'transparent';
+                canvasBackgroundVideo.style.display = 'block';
+                videoControlsDiv.style.display = 'flex'; 
+                if (isPlaying && canvasBackgroundVideo.paused) {
+                     canvasBackgroundVideo.play().catch(e => console.warn("Video play failed:", e));
+                }
+            }
+        }
+
+        function handleBackgroundTypeChange() {
+            const type = backgroundTypeSelect.value;
+            bgColorSettingsDiv.style.display = type === 'color' ? 'flex' : 'none';
+            bgImageSettingsDiv.style.display = type === 'image' ? 'flex' : 'none';
+            bgVideoSettingsDiv.style.display = type === 'video' ? 'flex' : 'none';
+            updateCanvasBackground(); 
+            drawCurrentOrInitialSpectrum(); 
+        }
+
+        function handleBackgroundImageSelect(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    canvasBackgroundImage.src = e.target.result;
+                    backgroundFileNameDisplay.textContent = `画像: ${file.name}`;
+                    backgroundVideoNameDisplay.textContent = ''; 
+                    if(canvasBackgroundVideo.currentSrc) { 
+                        canvasBackgroundVideo.src = '';
+                        canvasBackgroundVideo.load(); 
+                        videoControlsDiv.style.display = 'none';
+                    }
+                    updateCanvasBackground(); 
+                    drawCurrentOrInitialSpectrum(); 
+                }
+                reader.readAsDataURL(file);
+            }
+        }
+        function handleBackgroundVideoSelect(event) { 
+            const file = event.target.files[0];
+            if (file) {
+                const objectURL = URL.createObjectURL(file);
+                canvasBackgroundVideo.src = objectURL; 
+                backgroundVideoNameDisplay.textContent = `動画: ${file.name}`;
+                backgroundFileNameDisplay.textContent = ''; 
+                canvasBackgroundImage.src = '#'; 
+            }
+        }
+
+
+        function clearBackgroundImage() {
+            canvasBackgroundImage.src = '#'; 
+            backgroundImageFileInput.value = ''; 
+            backgroundFileNameDisplay.textContent = '';
+            updateCanvasBackground(); 
+            drawCurrentOrInitialSpectrum(); 
+        }
+        function clearBackgroundVideo() { 
+            canvasBackgroundVideo.src = '';
+            if(canvasBackgroundVideo.currentSrc) canvasBackgroundVideo.load(); 
+            backgroundVideoFileInput.value = '';
+            backgroundVideoNameDisplay.textContent = '';
+            videoControlsDiv.style.display = 'none';
+            updateCanvasBackground();
+            drawCurrentOrInitialSpectrum();
+        }
+        
+        // --- UI制御と初期描画 ---
+        function toggleDetailSettingsVisibility() {
+            const selectedType = spectrumTypeSelect.value;
+            const allDetailSettings = spectrumDetailSettingsDiv.querySelectorAll('.setting-item[data-type]');
+            allDetailSettings.forEach(item => {
+                if (item.dataset.type === selectedType) {
+                    item.style.display = 'flex'; 
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+        }
+        
+        // Setting Group Accordion
+        document.querySelectorAll('.setting-group-header').forEach(header => {
+            const content = header.nextElementSibling;
+            const icon = header.querySelector('.icon-chevron-down');
+            if (content) { // コンテンツがないグループは対象外（詳細設定グループなど）
+                content.style.display = 'none'; // 初期状態は閉じる
+                icon.style.transform = 'rotate(0deg)';
+
+                header.addEventListener('click', () => {
+                    if (content.style.display === 'none') {
+                        content.style.display = 'block';
+                        icon.style.transform = 'rotate(180deg)';
+                    } else {
+                        content.style.display = 'none';
+                        icon.style.transform = 'rotate(0deg)';
+                    }
+                });
+            }
+        });
+        // 詳細設定グループは初期状態で開いておく
+        if(spectrumDetailSettingsGroupDiv) {
+            const detailContent = spectrumDetailSettingsGroupDiv.querySelector('.setting-group-content');
+            const detailIcon = spectrumDetailSettingsGroupDiv.querySelector('.icon-chevron-down');
+            if(detailContent && detailIcon) {
+                detailContent.style.display = 'block';
+                detailIcon.style.transform = 'rotate(180deg)';
+            }
+        }
+
+
+        function drawInitialSpectrum() {
+            updateCanvasBackground(); 
+            canvasCtx.clearRect(0, 0, spectrumCanvas.width, spectrumCanvas.height); 
+
+            canvasCtx.fillStyle = '#9ca3af'; // 少し薄いグレーでメッセージ
+            canvasCtx.textAlign = 'center';
+            canvasCtx.font = '1rem Inter'; // 少し大きく
+            if (!audioBuffer) {
+                canvasCtx.fillText('音楽ファイルを選択してください', spectrumCanvas.width / 2, spectrumCanvas.height / 2);
+            } else {
+                const currentSpectrumType = spectrumTypeSelect.value;
+                if (currentSpectrumType === 'bar' || currentSpectrumType === 'line') {
+                     canvasCtx.beginPath();
+                     canvasCtx.moveTo(0, spectrumCanvas.height -1);
+                     canvasCtx.lineTo(spectrumCanvas.width, spectrumCanvas.height -1);
+                     canvasCtx.strokeStyle = '#4b5563'; // よりテーマに合わせた色
+                     canvasCtx.lineWidth = 1;
+                     canvasCtx.stroke();
+                } else if (currentSpectrumType === 'circle') {
+                    const centerX = spectrumCanvas.width / 2;
+                    const centerY = spectrumCanvas.height / 2;
+                    const innerRadiusRatio = parseFloat(circleInnerRadiusRatioRange.value);
+                    const defaultLineLength = parseFloat(circleDefaultLineLengthRange.value); 
+                    const baseMaxOuterRadius = Math.min(centerX, centerY) * 0.9;
+                    const innerRadius = baseMaxOuterRadius * innerRadiusRatio;
+                    const numBars = parseInt(circleBarCountRange.value);
+
+                    canvasCtx.strokeStyle = '#4b5563'; 
+                    canvasCtx.lineWidth = parseFloat(circleLineWidthRange.value);
+
+                    for (let i = 0; i < numBars; i++) {
+                        const angle = (i / numBars) * Math.PI * 2 - Math.PI / 2; 
+                        const startX = centerX + Math.cos(angle) * innerRadius;
+                        const startY = centerY + Math.sin(angle) * innerRadius;
+                        const endX = centerX + Math.cos(angle) * (innerRadius + defaultLineLength); 
+                        const endY = centerY + Math.sin(angle) * (innerRadius + defaultLineLength);
+                        canvasCtx.beginPath();
+                        canvasCtx.moveTo(startX, startY);
+                        canvasCtx.lineTo(endX, endY);
+                        canvasCtx.stroke();
+                    }
+
+                } else if (currentSpectrumType === 'wave') {
+                    canvasCtx.beginPath();
+                    canvasCtx.moveTo(0, spectrumCanvas.height / 2);
+                    canvasCtx.lineTo(spectrumCanvas.width, spectrumCanvas.height / 2);
+                    canvasCtx.strokeStyle = '#4b5563';
+                    canvasCtx.lineWidth = parseFloat(waveLineWidthRange.value);
+                    canvasCtx.stroke();
+                }
+                canvasCtx.fillStyle = '#9ca3af';
+                canvasCtx.fillText('再生準備完了', spectrumCanvas.width / 2, spectrumCanvas.height / 2 - 20); // メッセージ位置調整
+                 canvasCtx.font = '0.8rem Inter';
+                canvasCtx.fillText('(再生ボタンを押してください)', spectrumCanvas.width / 2, spectrumCanvas.height / 2 + 5);
+            }
+        }
+        
+        function drawCurrentOrInitialSpectrum() {
+            if (isPlaying || pausedTime > 0) { 
+                if (analyser) { 
+                    const currentSpectrumType = spectrumTypeSelect.value;
+                    const color = spectrumColorPicker.value;
+                    canvasCtx.clearRect(0, 0, spectrumCanvas.width, spectrumCanvas.height);
+                    
+                    analyser.getByteFrequencyData(frequencyDataArray); 
+                    if (currentSpectrumType === 'wave') { 
+                        analyser.getByteTimeDomainData(timeDomainDataArray);
+                        drawWaveform(timeDomainDataArray, color);
+                    } else if (currentSpectrumType === 'bar') {
+                        drawBarSpectrum(frequencyDataArray, color);
+                    } else if (currentSpectrumType === 'circle') {
+                        drawCircularSpectrum(frequencyDataArray, color);
+                    } else if (currentSpectrumType === 'line') {
+                        drawSmoothLineSpectrum(frequencyDataArray, color);
+                    }
+                }
+            } else { 
+                drawInitialSpectrum();
+            }
+        }
+
+        function disableControls(audioOnly = false) {
+            playPauseButton.disabled = true;
+            stopButton.disabled = true;
+        }
+        function enableControls() {
+            playPauseButton.disabled = false;
+        }
+
+        function resizeCanvas() {
+            const containerWidth = spectrumCanvasContainer.clientWidth;
+            const containerHeight = spectrumCanvasContainer.clientHeight;
+            spectrumCanvas.width = containerWidth;
+            spectrumCanvas.height = containerHeight;
+            drawCurrentOrInitialSpectrum();
+        }
+        window.addEventListener('resize', resizeCanvas);
+
+
+        // --- 初期化処理 ---
+        disableControls();
+        handleBackgroundTypeChange(); 
+        toggleDetailSettingsVisibility(); 
+        resizeCanvas(); 
+        
+        smoothingValueDisplay.textContent = parseFloat(smoothingTimeConstantRange.value).toFixed(2);
+        barCountDisplay.textContent = barCountRange.value;
+        barSpacingDisplay.textContent = parseFloat(barSpacingRange.value).toFixed(1);
+        circleBarCountDisplay.textContent = circleBarCountRange.value;
+        circleLineWidthDisplay.textContent = parseFloat(circleLineWidthRange.value).toFixed(1);
+        circleInnerRadiusRatioDisplay.textContent = parseFloat(circleInnerRadiusRatioRange.value).toFixed(2);
+        circleDefaultLineLengthDisplay.textContent = circleDefaultLineLengthRange.value; 
+        circleDynamicRadiusSensitivityDisplay.textContent = parseFloat(circleDynamicRadiusSensitivityRange.value).toFixed(1); 
+        lineWidthDisplay.textContent = parseFloat(lineWidthRange.value).toFixed(1);
+        waveLineWidthDisplay.textContent = parseFloat(waveLineWidthRange.value).toFixed(1);
+        waveAmplitudeDisplay.textContent = parseFloat(waveAmplitudeRange.value).toFixed(1);
+        
+        // 初期アイコン設定
+        playIcon.style.display = 'inline-block';
+        pauseIcon.style.display = 'none';
+        fullscreenEnterIcon.style.display = 'inline-block';
+        fullscreenExitIcon.style.display = 'none';
+        videoPlayIcon.style.display = 'inline-block';
+        videoPauseIcon.style.display = 'none';
+        videoMuteIcon.style.display = 'inline-block';
+        videoUnmuteIcon.style.display = 'none';
+
+
+    </script>
+</body>
+</html>
